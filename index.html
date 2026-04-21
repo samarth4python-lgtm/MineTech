@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MineTech v0.9 | Oceans & Lakes</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        #fps { position: absolute; top: 10px; right: 10px; color: #00ff00; background: rgba(0,0,0,0.5); padding: 5px 10px; font-weight: bold; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; color: white; transform: translate(-50%, -50%); pointer-events: none; font-size: 24px; text-shadow: 2px 2px #000; }
+        #hotbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; background: rgba(0,0,0,0.8); padding: 8px; border: 2px solid #fff; }
+        .slot { width: 45px; height: 45px; border: 2px solid #444; display: flex; align-items: center; justify-content: center; font-size: 8px; color: white; text-align: center; }
+        .active { border-color: #00ff00; background: rgba(0,255,0,0.3); }
+    </style>
+</head>
+<body>
+    <div id="fps">FPS: 0</div>
+    <div id="crosshair">+</div>
+    <div id="hotbar">
+        <div id="slot-grass" class="slot active">GRASS</div>
+        <div id="slot-stone" class="slot">STONE</div>
+        <div id="slot-wood" class="slot">LOG</div>
+        <div id="slot-leaves" class="slot">LEAVES</div>
+        <div id="slot-sand" class="slot">SAND</div>
+    </div>
+
+    <script type="importmap">
+        { "imports": { 
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "simplex": "https://cdn.skypack.dev/simplex-noise"
+        } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js';
+        import { createNoise2D } from 'simplex';
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+        // --- 1. SETUP ---
+        const supabase = createClient('https://sptrtduifeupracywaak.supabase.co', 'sb_publishable_tb0rkmUmGJEgyewt1Y9RPQ__SEBYIUS');
+        const noise2D = createNoise2D();
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 25, 75);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- 2. TEXTURES & MATERIALS ---
+        function makeTex(r, g, b) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            for(let x=0; x<16; x++) {
+                for(let y=0; y<16; y++) {
+                    const v = Math.random() * 25;
+                    ctx.fillStyle = `rgb(${r-v},${g-v},${b-v})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            const t = new THREE.CanvasTexture(canvas);
+            t.magFilter = THREE.NearestFilter;
+            return t;
+        }
+
+        const mats = {
+            grass: new THREE.MeshLambertMaterial({ map: makeTex(93, 160, 64) }),
+            stone: new THREE.MeshLambertMaterial({ map: makeTex(120, 120, 120) }),
+            wood: new THREE.MeshLambertMaterial({ map: makeTex(100, 70, 40) }),
+            leaves: new THREE.MeshLambertMaterial({ map: makeTex(40, 140, 40), transparent: true, opacity: 0.9 }),
+            sand: new THREE.MeshLambertMaterial({ map: makeTex(220, 200, 140) }),
+            water: new THREE.MeshLambertMaterial({ color: 0x0077ff, transparent: true, opacity: 0.6 })
+        };
+
+        // --- 3. WORLD PARAMETERS ---
+        const chunkSize = 16;
+        const seaLevel = -1;
+        const voxels = new Map();
+        const geo = new THREE.BoxGeometry(1, 1, 1);
+        const loadedChunks = new Set();
+
+        function spawnBlock(x, y, z, type) {
+            const key = `${x},${y},${z}`;
+            if(voxels.has(key)) return;
+            const mesh = new THREE.Mesh(geo, mats[type]);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            voxels.set(key, mesh);
+        }
+
+        function spawnTree(x, y, z) {
+            for(let i=0; i<4; i++) spawnBlock(x, y+i, z, 'wood');
+            for(let lx=-2; lx<=2; lx++) for(let lz=-2; lz<=2; lz++) {
+                if(Math.abs(lx) + Math.abs(lz) < 3) spawnBlock(x+lx, y+3, z+lz, 'leaves');
+                if(Math.abs(lx) + Math.abs(lz) < 2) spawnBlock(x+lx, y+4, z+lz, 'leaves');
+            }
+        }
+
+        function loadChunk(cx, cz) {
+            const cKey = `${cx},${cz}`;
+            if(loadedChunks.has(cKey)) return;
+            loadedChunks.add(cKey);
+
+            for(let x=0; x<chunkSize; x++) {
+                for(let z=0; z<chunkSize; z++) {
+                    const wx = cx * chunkSize + x;
+                    const wz = cz * chunkSize + z;
+                    const noise = noise2D(wx/30, wz/30) * 8;
+                    const h = Math.floor(noise);
+
+                    // Terrain Layers
+                    if (h < seaLevel) {
+                        spawnBlock(wx, h, wz, 'sand'); // Lake/Ocean Floor
+                        // Fill with Water up to sea level
+                        for(let w = h + 1; w <= seaLevel; w++) spawnBlock(wx, w, wz, 'water');
+                    } else if (h === seaLevel) {
+                        spawnBlock(wx, h, wz, 'sand'); // Beach
+                    } else {
+                        spawnBlock(wx, h, wz, 'grass');
+                        spawnBlock(wx, h-1, wz, 'stone');
+                        if(Math.random() < 0.01) spawnTree(wx, h+1, wz);
+                    }
+                }
+            }
+        }
+
+        // --- 4. CONTROLS ---
+        const controls = new PointerLockControls(camera, document.body);
+        document.body.addEventListener('click', () => controls.lock());
+
+        let selected = 'grass';
+        const slots = ['grass', 'stone', 'wood', 'leaves', 'sand'];
+        window.addEventListener('keydown', e => {
+            const idx = parseInt(e.key) - 1;
+            if(slots[idx]) {
+                selected = slots[idx];
+                document.querySelectorAll('.slot').forEach((s, i) => s.classList.toggle('active', i === idx));
+            }
+        });
+
+        const raycaster = new THREE.Raycaster();
+        window.addEventListener('mousedown', e => {
+            if(!controls.isLocked) return;
+            raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+            const intersects = raycaster.intersectObjects(scene.children);
+            if(intersects.length > 0) {
+                const hit = intersects[0];
+                if(e.button === 0) { // Place
+                    const p = hit.object.position.clone().add(hit.face.normal);
+                    spawnBlock(p.x, p.y, p.z, selected);
+                } else if(e.button === 2) { // Break
+                    if(hit.object.material !== mats.water) { // Can't break water
+                        scene.remove(hit.object);
+                        voxels.delete(`${hit.object.position.x},${hit.object.position.y},${hit.object.position.z}`);
+                    }
+                }
+            }
+        });
+
+        // --- 5. LIGHTING & LOOP ---
+        const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+        const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+        sun.position.set(10, 20, 10);
+        scene.add(ambient, sun);
+
+        const keys = {};
+        document.onkeydown = e => keys[e.code] = true;
+        document.onkeyup = e => keys[e.code] = false;
+
+        let lastFps = 0, frames = 0;
+        function animate(t) {
+            requestAnimationFrame(animate);
+            frames++;
+            if(t > lastFps + 1000) { document.getElementById('fps').innerText = `FPS: ${frames}`; frames = 0; lastFps = t; }
+
+            if(controls.isLocked) {
+                const spd = 0.15;
+                if(keys['KeyW']) controls.moveForward(spd);
+                if(keys['KeyS']) controls.moveForward(-spd);
+                if(keys['KeyA']) controls.moveRight(-spd);
+                if(keys['KeyD']) controls.moveRight(spd);
+
+                const cx = Math.floor(camera.position.x / chunkSize);
+                const cz = Math.floor(camera.position.z / chunkSize);
+                for(let x=-1; x<=1; x++) for(let z=-1; z<=1; z++) loadChunk(cx+x, cz+z);
+            }
+            renderer.render(scene, camera);
+        }
+
+        camera.position.set(0, 10, 10);
+        animate(0);
+        window.oncontextmenu = e => e.preventDefault();
+    </script>
+</body>
+</html>
