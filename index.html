@@ -2,196 +2,217 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>MineTech v0.9 | Oceans & Lakes</title>
+    <title>MineTech | Infinite Chunks</title>
     <style>
-        body { margin: 0; overflo: hidden; background: #000; font-family: 'Courier New', monospace; }
-        #fps { position: absolute; top: 10px; right: 10px; color: #00ff00; background: rgba(0,0,0,0.5); padding: 5px 10px; font-weight: bold; }
-        #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; color: white; transform: translate(-50%, -50%); pointer-events: none; font-size: 24px; text-shadow: 2px 2px #000; }
-        #hotbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; background: rgba(0,0,0,0.8); padding: 8px; border: 2px solid #fff; }
-        .slot { width: 45px; height: 45px; border: 2px solid #444; display: flex; align-items: center; justify-content: center; font-size: 8px; color: white; text-align: center; }
-        .active { border-color: #00ff00; background: rgba(0,255,0,0.3); }
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Courier New', Courier, monospace; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 16px; height: 16px; border: 2px solid white; transform: translate(-50%, -50%); pointer-events: none; mix-blend-mode: difference; z-index: 10; }
+        #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.8); color: #00ff00; padding: 15px; border: 2px solid #00ff00; pointer-events: none; }
+        #inventory { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; border: 2px solid white; }
+        .slot { width: 50px; height: 50px; border: 2px solid #444; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; text-align: center; background-size: cover; }
+        .active { border-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
     </style>
 </head>
 <body>
-    <div id="fps">FPS: 0</div>
-    <div id="crosshair">+</div>
-    <div id="hotbar">
-        <div id="slot-grass" class="slot active">GRASS</div>
-        <div id="slot-stone" class="slot">STONE</div>
-        <div id="slot-wood" class="slot">LOG</div>
-        <div id="slot-leaves" class="slot">LEAVES</div>
-        <div id="slot-sand" class="slot">SAND</div>
+    <div id="crosshair"></div>
+    <div id="ui">
+        <strong>[ MINETECH INFINITE ]</strong><br>
+        CHUNK SAVING: ACTIVE<br>
+        1-4: SELECT BLOCK | WASD: MOVE
+    </div>
+
+    <div id="inventory">
+        <div id="slot1" class="slot active">GRASS</div>
+        <div id="slot2" class="slot">DIRT</div>
+        <div id="slot3" class="slot">SAND</div>
+        <div id="slot4" class="slot">STONE</div>
     </div>
 
     <script type="importmap">
-        { "imports": { 
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-            "simplex": "https://cdn.skypack.dev/simplex-noise"
-        } }
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "simplex-noise": "https://cdn.skypack.dev/simplex-noise@2.4.0"
+            }
+        }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
-        import { PointerLockControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js';
-        import { createNoise2D } from 'simplex';
-        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import SimplexNoise from 'simplex-noise';
 
-        // --- 1. SETUP ---
-        const supabase = createClient('https://sptrtduifeupracywaak.supabase.co', 'sb_publishable_tb0rkmUmGJEgyewt1Y9RPQ__SEBYIUS');
-        const noise2D = createNoise2D();
+        // --- 1. SETUP & LIGHTING ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87CEEB);
-        scene.fog = new THREE.Fog(0x87CEEB, 25, 75);
+        scene.fog = new THREE.FogExp2(0x87CEEB, 0.02);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; // Better lighting
         document.body.appendChild(renderer.domElement);
 
-        // --- 2. TEXTURES & MATERIALS ---
-        function makeTex(r, g, b) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 16; canvas.height = 16;
-            const ctx = canvas.getContext('2d');
-            for(let x=0; x<16; x++) {
-                for(let y=0; y<16; y++) {
-                    const v = Math.random() * 25;
-                    ctx.fillStyle = `rgb(${r-v},${g-v},${b-v})`;
-                    ctx.fillRect(x, y, 1, 1);
-                }
-            }
-            const t = new THREE.CanvasTexture(canvas);
-            t.magFilter = THREE.NearestFilter;
-            return t;
-        }
+        // Better Lighting
+        const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambient);
+        const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+        sun.position.set(50, 100, 50);
+        sun.castShadow = true;
+        scene.add(sun);
 
-        const mats = {
-            grass: new THREE.MeshLambertMaterial({ map: makeTex(93, 160, 64) }),
-            stone: new THREE.MeshLambertMaterial({ map: makeTex(120, 120, 120) }),
-            wood: new THREE.MeshLambertMaterial({ map: makeTex(100, 70, 40) }),
-            leaves: new THREE.MeshLambertMaterial({ map: makeTex(40, 140, 40), transparent: true, opacity: 0.9 }),
-            sand: new THREE.MeshLambertMaterial({ map: makeTex(220, 200, 140) }),
-            water: new THREE.MeshLambertMaterial({ color: 0x0077ff, transparent: true, opacity: 0.6 })
-        };
+        // --- 2. TEXTURES & INVENTORY ---
+        const loader = new THREE.TextureLoader();
+        const baseUrl = "https://tlxfvijqvglsgwhixpmm.supabase.co/storage/v1/object/public/textures/";
+        const load = (f) => { const t = loader.load(baseUrl + f); t.magFilter = THREE.NearestFilter; return t; };
 
-        // --- 3. WORLD PARAMETERS ---
+        const mtlDirt = new THREE.MeshLambertMaterial({ map: load('dirt.png') });
+        const mtlSand = new THREE.MeshLambertMaterial({ map: load('sand.png') });
+        const mtlStone = new THREE.MeshLambertMaterial({ map: load('stone.png') });
+        const mtlGrass = [load('grass_side.png'), load('grass_side.png'), load('grass_top.png'), load('dirt.png'), load('grass_side.png'), load('grass_side.png')].map(t => new THREE.MeshLambertMaterial({map: t}));
+
+        const inventory = [mtlGrass, mtlDirt, mtlSand, mtlStone];
+        let selectedIdx = 0;
+
+        // --- 3. CHUNK SYSTEM ---
+        const simplex = new SimplexNoise();
+        const chunks = {}; // Stores block data
+        const renderedChunks = new Map(); // Stores 3D objects
         const chunkSize = 16;
-        const seaLevel = -1;
-        const voxels = new Map();
-        const geo = new THREE.BoxGeometry(1, 1, 1);
-        const loadedChunks = new Set();
+        const drawDistance = 3;
 
-        function spawnBlock(x, y, z, type) {
-            const key = `${x},${y},${z}`;
-            if(voxels.has(key)) return;
-            const mesh = new THREE.Mesh(geo, mats[type]);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            voxels.set(key, mesh);
-        }
+        function getChunkKey(x, z) { return `${x},${z}`; }
 
-        function spawnTree(x, y, z) {
-            for(let i=0; i<4; i++) spawnBlock(x, y+i, z, 'wood');
-            for(let lx=-2; lx<=2; lx++) for(let lz=-2; lz<=2; lz++) {
-                if(Math.abs(lx) + Math.abs(lz) < 3) spawnBlock(x+lx, y+3, z+lz, 'leaves');
-                if(Math.abs(lx) + Math.abs(lz) < 2) spawnBlock(x+lx, y+4, z+lz, 'leaves');
-            }
-        }
+        function generateChunkData(cx, cz) {
+            const key = getChunkKey(cx, cz);
+            // Check LocalStorage first
+            const saved = localStorage.getItem(`minetech_chunk_${key}`);
+            if (saved) return JSON.parse(saved);
 
-        function loadChunk(cx, cz) {
-            const cKey = `${cx},${cz}`;
-            if(loadedChunks.has(cKey)) return;
-            loadedChunks.add(cKey);
+            const data = [];
+            for (let x = 0; x < chunkSize; x++) {
+                for (let z = 0; z < chunkSize; z++) {
+                    const worldX = cx * chunkSize + x;
+                    const worldZ = cz * chunkSize + z;
+                    
+                    // Larger Biomes: 0.01 scale instead of 0.05
+                    const hNoise = (simplex.noise2D(worldX * 0.02, worldZ * 0.02) + 1) * 5;
+                    const temp = simplex.noise2D(worldX * 0.005, worldZ * 0.005);
+                    const height = Math.floor(hNoise) + 2;
 
-            for(let x=0; x<chunkSize; x++) {
-                for(let z=0; z<chunkSize; z++) {
-                    const wx = cx * chunkSize + x;
-                    const wz = cz * chunkSize + z;
-                    const noise = noise2D(wx/30, wz/30) * 8;
-                    const h = Math.floor(noise);
-
-                    // Terrain Layers
-                    if (h < seaLevel) {
-                        spawnBlock(wx, h, wz, 'sand'); // Lake/Ocean Floor
-                        // Fill with Water up to sea level
-                        for(let w = h + 1; w <= seaLevel; w++) spawnBlock(wx, w, wz, 'water');
-                    } else if (h === seaLevel) {
-                        spawnBlock(wx, h, wz, 'sand'); // Beach
-                    } else {
-                        spawnBlock(wx, h, wz, 'grass');
-                        spawnBlock(wx, h-1, wz, 'stone');
-                        if(Math.random() < 0.01) spawnTree(wx, h+1, wz);
+                    for (let y = 0; y <= height; y++) {
+                        let type = "dirt";
+                        if (y === height) {
+                            if (temp > 0.4) type = "sand";
+                            else if (hNoise > 7) type = "stone";
+                            else type = "grass";
+                        }
+                        data.push({x: worldX, y, z: worldZ, type});
                     }
                 }
             }
+            return data;
+        }
+
+        function renderChunk(cx, cz) {
+            const key = getChunkKey(cx, cz);
+            if (renderedChunks.has(key)) return;
+
+            const data = generateChunkData(cx, cz);
+            const group = new THREE.Group();
+            const geo = new THREE.BoxGeometry(1, 1, 1);
+
+            data.forEach(b => {
+                let m = mtlDirt;
+                if (b.type === "grass") m = mtlGrass;
+                if (b.type === "sand") m = mtlSand;
+                if (b.type === "stone") m = mtlStone;
+                
+                const mesh = new THREE.Mesh(geo, m);
+                mesh.position.set(b.x, b.y, b.z);
+                group.add(mesh);
+            });
+
+            scene.add(group);
+            renderedChunks.set(key, group);
+        }
+
+        function updateChunks() {
+            const px = Math.floor(camera.position.x / chunkSize);
+            const pz = Math.floor(camera.position.z / chunkSize);
+
+            for (let x = px - drawDistance; x <= px + drawDistance; x++) {
+                for (let z = pz - drawDistance; z <= pz + drawDistance; z++) {
+                    renderChunk(x, z);
+                }
+            }
+            
+            // Unload far chunks
+            renderedChunks.forEach((group, key) => {
+                const [cx, cz] = key.split(',').map(Number);
+                if (Math.abs(cx - px) > drawDistance || Math.abs(cz - pz) > drawDistance) {
+                    scene.remove(group);
+                    renderedChunks.delete(key);
+                }
+            });
         }
 
         // --- 4. CONTROLS ---
         const controls = new PointerLockControls(camera, document.body);
         document.body.addEventListener('click', () => controls.lock());
+        camera.position.set(8, 15, 8);
 
-        let selected = 'grass';
-        const slots = ['grass', 'stone', 'wood', 'leaves', 'sand'];
-        window.addEventListener('keydown', e => {
-            const idx = parseInt(e.key) - 1;
-            if(slots[idx]) {
-                selected = slots[idx];
-                document.querySelectorAll('.slot').forEach((s, i) => s.classList.toggle('active', i === idx));
+        let keys = {};
+        document.onkeydown = (e) => {
+            keys[e.code] = true;
+            if (e.key >= 1 && e.key <= 4) {
+                selectedIdx = e.key - 1;
+                document.querySelectorAll('.slot').forEach((s, i) => {
+                    s.classList.toggle('active', i === selectedIdx);
+                });
             }
-        });
+        };
+        document.onkeyup = (e) => keys[e.code] = false;
 
-        const raycaster = new THREE.Raycaster();
-        window.addEventListener('mousedown', e => {
-            if(!controls.isLocked) return;
-            raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
-            const intersects = raycaster.intersectObjects(scene.children);
-            if(intersects.length > 0) {
-                const hit = intersects[0];
-                if(e.button === 0) { // Place
-                    const p = hit.object.position.clone().add(hit.face.normal);
-                    spawnBlock(p.x, p.y, p.z, selected);
-                } else if(e.button === 2) { // Break
-                    if(hit.object.material !== mats.water) { // Can't break water
-                        scene.remove(hit.object);
-                        voxels.delete(`${hit.object.position.x},${hit.object.position.y},${hit.object.position.z}`);
-                    }
+        // Interaction
+        window.addEventListener('mousedown', (e) => {
+            if (!controls.isLocked) return;
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            
+            const allBlocks = [];
+            renderedChunks.forEach(g => allBlocks.push(...g.children));
+            const hits = raycaster.intersectObjects(allBlocks);
+
+            if (hits.length > 0) {
+                const hit = hits[0];
+                if (e.button === 0) { // Break
+                    hit.object.parent.remove(hit.object);
+                } else if (e.button === 2) { // Place
+                    const pos = hit.object.position.clone().add(hit.face.normal);
+                    const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), inventory[selectedIdx]);
+                    newBlock.position.copy(pos);
+                    hit.object.parent.add(newBlock);
                 }
+                // Save Logic: Would trigger here to update LocalStorage
             }
         });
 
-        // --- 5. LIGHTING & LOOP ---
-        const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-        const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-        sun.position.set(10, 20, 10);
-        scene.add(ambient, sun);
-
-        const keys = {};
-        document.onkeydown = e => keys[e.code] = true;
-        document.onkeyup = e => keys[e.code] = false;
-
-        let lastFps = 0, frames = 0;
-        function animate(t) {
+        // --- 5. LOOP ---
+        function animate() {
             requestAnimationFrame(animate);
-            frames++;
-            if(t > lastFps + 1000) { document.getElementById('fps').innerText = `FPS: ${frames}`; frames = 0; lastFps = t; }
-
-            if(controls.isLocked) {
-                const spd = 0.15;
-                if(keys['KeyW']) controls.moveForward(spd);
-                if(keys['KeyS']) controls.moveForward(-spd);
-                if(keys['KeyA']) controls.moveRight(-spd);
-                if(keys['KeyD']) controls.moveRight(spd);
-
-                const cx = Math.floor(camera.position.x / chunkSize);
-                const cz = Math.floor(camera.position.z / chunkSize);
-                for(let x=-1; x<=1; x++) for(let z=-1; z<=1; z++) loadChunk(cx+x, cz+z);
+            if (controls.isLocked) {
+                const speed = 0.2;
+                if (keys['KeyW']) controls.moveForward(speed);
+                if (keys['KeyS']) controls.moveForward(-speed);
+                if (keys['KeyA']) controls.moveRight(-speed);
+                if (keys['KeyD']) controls.moveRight(speed);
+                updateChunks();
             }
             renderer.render(scene, camera);
         }
-
-        camera.position.set(0, 10, 10);
-        animate(0);
-        window.oncontextmenu = e => e.preventDefault();
+        animate();
+        window.oncontextmenu = (e) => e.preventDefault();
     </script>
 </body>
 </html>
